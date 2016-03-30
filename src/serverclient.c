@@ -14,10 +14,10 @@ int sender(int socket) {
 
 
 	snprintf(buf, buf_size, "GET / HTTP/1.1\r\n\r\n");
-	ret = sends(socket, buf);
+	ret = sendsm(socket, buf);
 	printf("Sent %d bytes !\n", ret);
 
-	ret = recvs(socket, buf, buf_size);
+	ret = recvsm(socket, buf, buf_size);
 	printf("Received %d bytes ! Message:\n%s\n", ret, buf);
 
 
@@ -39,7 +39,7 @@ int receiver(int socket) {
 	}
 
 
-	ret = recvs(socket, buf, buf_size);
+	ret = recvsm(socket, buf, buf_size);
 	printf("Received %d bytes ! Message:\n%s\n", ret, buf);
 
 
@@ -70,7 +70,7 @@ int server(char* host_address, int host_port, int is_sender) {
 
 	sin_s.sin_family = AF_INET;
 	sin_s.sin_port = htons((unsigned short)host_port);
-	sin_s.sin_addr.s_addr = hnametoipv4(host_address);
+	hnametoipv4(host_address, &sin_s.sin_addr);
 
 	ret = bind(socket_s, (const struct sockaddr*)&sin_s, sizeof(sin_s));
 	if (ret < 0) {
@@ -99,7 +99,7 @@ int server(char* host_address, int host_port, int is_sender) {
 		return -1;
 	}
 
-	ipv4tostr(client_ip, 16, sin_c.sin_addr.s_addr);
+	ipv4tostr(&sin_c.sin_addr, client_ip, 16);
 	client_port = (int)ntohs(sin_c.sin_port);
 
 	printf("Client connected ! from %s:%d\n", client_ip, client_port);
@@ -135,7 +135,7 @@ int client(char* host_address, int host_port, int is_sender) {
 
 	sin_c.sin_family = AF_INET;
 	sin_c.sin_port = htons((unsigned short)host_port);
-	sin_c.sin_addr.s_addr = hnametoipv4(host_address);
+	hnametoipv4(host_address, &sin_c.sin_addr);
 
 	printf("Connection to %s:%d\n", host_address, host_port);
 

@@ -19,7 +19,7 @@ endif
 
 
 CCCLNFLAGS = $(LIBS)
-CCCFLAGS = # -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-label
+CCCFLAGS = -Wno-address -Wno-pointer-sign # -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-label
 
 BDIR = bin
 ODIR = obj

@@ -44,7 +44,7 @@ int sender(int socket, FILE* fin, FILE* fout, int buf_size) {
 
 	ret = sendl(socket, buf, fs, 0);
 	if (ret<0) {
-		printf("Error on sends() !\n");
+		printf("Error on sendl() !\n");
 		free(buf);
 		return -1;
 	}
@@ -87,7 +87,7 @@ int client(char* host_address, int host_port, FILE* fin, FILE* fout, int buf_siz
 
 	sin_c.sin_family = AF_INET;
 	sin_c.sin_port = htons((unsigned short)host_port);
-	sin_c.sin_addr.s_addr = hnametoipv4(host_address);
+	hnametoipv4(host_address, &sin_c.sin_addr);
 
 	printf("Connection to %s:%d\n", host_address, host_port);
 

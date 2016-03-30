@@ -10,7 +10,7 @@
 
 void* memmem2(const void* haystack, size_t haystack_len, const void* needle,  size_t needle_len);
 
-#ifdef OS_LINUX
+#ifdef OS_UNIX
 int get_ticks_ms(void)
 {
 	struct tms tm;
@@ -34,7 +34,7 @@ int loadsocklib()
 	wsaVer = MAKEWORD(2, 2);
 	return WSAStartup(wsaVer, &wsaData);
 #endif
-#ifdef OS_LINUX
+#ifdef OS_UNIX
 	return 0;
 #endif
 	return -1;
@@ -45,7 +45,7 @@ int unloadsocklib()
 #ifdef OS_WINDOWS
 	return WSACleanup();
 #endif
-#ifdef OS_LINUX
+#ifdef OS_UNIX
 	return 0;
 #endif
 	return -1;
@@ -59,7 +59,7 @@ int sclose(int socket)
 	closesocket(socket);
 	return ret;
 #endif
-#ifdef OS_LINUX
+#ifdef OS_UNIX
 	return close(socket);
 #endif
 	return -1;
@@ -325,14 +325,16 @@ int sendw(int socket, void* buf, int (*sendwcb)(void* buf, int* pto_send, void* 
 		// should return -1 if error, 1 to continue, 0 to stop
 		// to_send is the size of what will be written in the network buffer and sent
 		ret = sendwcb(buf, &to_send, sendwcb_data);
-		if (ret < 0)
+		if (ret < 0) {
 			return -1;
+		}
 
 		if (to_send > 0) {
 			// Now we process sent_last bytes exactly
 			ret = sendl(socket, buf, to_send, 0);
-			if (ret < 0)
+			if (ret < 0) {
 				return -1;
+			}
 
 			sent_total += to_send;
 
@@ -352,6 +354,8 @@ typedef struct recvf_bag {
 	FILE* f;
 	int recv_size;
 	int rcvd_total;
+	int (*recvwcb)(void* buf, int* prcvd_last, void* data);
+	void* recvwcb_data;
 
 	int rcvd_total_lastcb;
 	int (*rtcb)(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data);
@@ -364,28 +368,52 @@ typedef struct recvf_bag {
 } recvf_bag;
 int recvf_wcb(void* buf, int* prcvd_last, void* data) {
 	int ret = 0;
+	int ret_recvwcb;
 	recvf_bag *pbag = (recvf_bag*)data;
-	FILE* f = pbag->f;
-	int recv_size = pbag->recv_size;   // total size to receive
-	int rcvd_total = pbag->rcvd_total; // total size received and processed
-	int rcvd_last = *prcvd_last;       // last size received (total size received now is rcvd_total+rcvd_last)
+	FILE* f;
+	int recv_size;   // total size to receive
+	int rcvd_total; // total size received and processed
+	int rcvd_last;       // last size received (total size received now is rcvd_total+rcvd_last)
 	int tm;
 	int delta_tm;
+
+	// user defined recvw callback to possibly stop receiving (to use when received size is unknown)
+	if (pbag->recvwcb != NULL) {
+		ret = pbag->recvwcb(buf, prcvd_last, pbag->recvwcb_data);
+		if (ret < 0) {
+			return -1;
+		}
+		ret_recvwcb = ret;
+	}
+
+	f = pbag->f;
+	recv_size = pbag->recv_size;
+	rcvd_total = pbag->rcvd_total;
+	rcvd_last = *prcvd_last;
 
 	if (recv_size != 0) // if its == 0 don't correct
 		rcvd_last = min(rcvd_last, recv_size - rcvd_total); // correct the size we are processing
 
-	ret = fwrite((const void*)buf, rcvd_last, 1, f);
-	if (ret <= 0) {
+	if (rcvd_last == 0) { // if nothing to do, don't do anything
+		*prcvd_last = rcvd_last;
+		return 0;
+	}
+
+	ret = fwrite((const void*)buf, 1, rcvd_last, f);
+	if (ret < 0) {
 		return -1; // error
 	}
+
 
 	rcvd_total += rcvd_last;
 	pbag->rcvd_total = rcvd_total;
 	*prcvd_last = rcvd_last; // output the exact size we processed
 
+
+
 	tm = get_ticks_ms();
-	if (tm - pbag->tmstart_ms >= pbag->nbofcb * pbag->interval_ms) {
+	//if (tm - pbag->tmstart_ms >= pbag->nbofcb * pbag->interval_ms) {  // Callback at regular time intervals (interval might be < interval_ms)
+	if (tm - pbag->tmlastcb_ms >= pbag->interval_ms) {  // Callback at at least interval_ms intervals
 		pbag->nbofcb++;
 		delta_tm = tm - pbag->tmlastcb_ms;
 		if (delta_tm > 0) { // update value if dt > 0 since last callback
@@ -401,12 +429,19 @@ int recvf_wcb(void* buf, int* prcvd_last, void* data) {
 		pbag->rcvd_total_lastcb = rcvd_total;
 	}
 
+
+
 	if (recv_size != 0 && rcvd_total >= recv_size) {
 		// we are done receiving
 		return 0;
 	}
 	else {
-		// receive more data
+		// receive more data unless the user defined cb said stop
+		if (pbag->recvwcb != NULL) {
+			if (ret_recvwcb == 0) {
+				return 0;
+			}
+		}
 		return 1;
 	}
 }
@@ -414,7 +449,7 @@ int recvf_wcb(void* buf, int* prcvd_last, void* data) {
 // number of bytes to send
 // if size == 0 then it will receive until the socket gets closed
 // since the file size has to be known it can be useful to send it first with sendint for example
-int recvf(int socket, FILE* f, int recv_size, int bufsize, int (*rtcb)(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data) {
+int recvf(int socket, FILE* f, int recv_size, int bufsize, int (*rtcb)(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data, int (*recvwcb)(void* buf, int* prcvd_last, void* data), void* recvwcb_data) {
 	int ret = 0;
 	recvf_bag bag;
 	void* buf;
@@ -425,6 +460,9 @@ int recvf(int socket, FILE* f, int recv_size, int bufsize, int (*rtcb)(int rcvd_
 	bag.f = f;
 	bag.recv_size = recv_size;
 	bag.rcvd_total = 0;
+	bag.recvwcb = recvwcb;
+	bag.recvwcb_data = recvwcb_data;
+
 	bag.rtcb = rtcb;
 	bag.interval_ms = interval_ms;
 	bag.tcb_data = tcb_data;
@@ -441,7 +479,7 @@ int recvf(int socket, FILE* f, int recv_size, int bufsize, int (*rtcb)(int rcvd_
 	bag.speed_Bps = 0.0;
 
 	bag.tmlastcb_ms = tm;
-	if (rtcb != NULL) {
+	if (rtcb != NULL) { // callback the first time
 		ret = rtcb(0, recv_size, 0, 0.0, tcb_data); // first time call it
 		if (ret < 0) {
 			free(buf);
@@ -464,7 +502,7 @@ int recvf(int socket, FILE* f, int recv_size, int bufsize, int (*rtcb)(int rcvd_
 		bag.speed_Bps = 1000.0*(double)(rcvd_total - bag.rcvd_total_lastcb)/(double)delta_tm;
 	}
 	bag.tmlastcb_ms = tm;
-	if (rtcb != NULL && delta_tm > 0) {
+	if (rtcb != NULL) {// && delta_tm > 0) { // callback the last time
 		ret = rtcb(rcvd_total, (recv_size > 0 ? recv_size : rcvd_total), tm - bag.tmstart_ms, bag.speed_Bps, tcb_data); // last time call it
 		if (ret < 0) {
 			free(buf);
@@ -485,6 +523,8 @@ typedef struct sendf_bag {
 	int send_size;
 	int sent_total;
 	int buf_size;
+	int (*sendwcb)(void* buf, int* pto_send, void* data);
+	void* sendwcb_data;
 
 	int sent_total_lastcb;
 	int (*stcb)(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data);
@@ -497,6 +537,8 @@ typedef struct sendf_bag {
 } sendf_bag;
 int sendf_wcb(void* buf, int* pto_send, void* data) {
 	int ret = 0;
+	int ret_sendwcb;
+	int sendwcb_to_send;
 	sendf_bag *pbag = (sendf_bag*)data;
 	FILE* f = pbag->f;
 	int send_size = pbag->send_size;   // total size to receive
@@ -506,15 +548,21 @@ int sendf_wcb(void* buf, int* pto_send, void* data) {
 	int delta_tm;
 
 	to_send = min(pbag->buf_size, send_size - sent_total);
+	if (to_send == 0) { // if nothing to do, don't do anything
+		*pto_send = to_send;
+		return 0;
+	}
 
-	ret = fread((void*)buf, to_send, 1, f);
-	if (ret <= 0) {
+	ret = fread((void*)buf, 1, to_send, f);
+	if (ret < 0) {
 		return -1; // error
 	}
 
 
+
 	tm = get_ticks_ms();
-	if (tm - pbag->tmstart_ms >= pbag->nbofcb * pbag->interval_ms) {
+	//if (tm - pbag->tmstart_ms >= pbag->nbofcb * pbag->interval_ms) { // Callback at regular time intervals (interval might be < interval_ms)
+	if (tm - pbag->tmlastcb_ms >= pbag->interval_ms) { // Callback at at least interval_ms intervals
 		pbag->nbofcb++;
 		delta_tm = tm - pbag->tmlastcb_ms;
 		if (delta_tm > 0) { // update value if dt > 0 since last callback
@@ -531,16 +579,39 @@ int sendf_wcb(void* buf, int* pto_send, void* data) {
 	}
 
 
+	// user defined recvw callback to possibly stop receiving (to use when sent size is unknown)
+	if (pbag->sendwcb != NULL) {
+		sendwcb_to_send = to_send;
+		ret = pbag->sendwcb(buf, &sendwcb_to_send, pbag->sendwcb_data);
+		if (ret < 0) {
+			return -1;
+		}
+		ret_sendwcb = ret;
+		// if size changed move back the cursor in the input file stream to the correct position
+		if (sendwcb_to_send < to_send) {
+			fseek(f, sendwcb_to_send-to_send, SEEK_CUR);
+			to_send = sendwcb_to_send;
+		}
+	}
+
+
 	sent_total += to_send;
 	pbag->sent_total = sent_total;
 	*pto_send = to_send; // output the exact size we processed
+
+
 
 	if (sent_total >= send_size) {
 		// we are done receiving
 		return 0;
 	}
 	else {
-		// receive more data
+		// receive more data unless the user defined cb said stop
+		if (pbag->sendwcb != NULL) {
+			if (ret_sendwcb == 0) {
+				return 0;
+			}
+		}
 		return 1;
 	}
 }
@@ -548,7 +619,7 @@ int sendf_wcb(void* buf, int* pto_send, void* data) {
 // number of bytes to send
 // if size == 0 then it will send until EOF is reached or the socket is closed
 // since the file size has to be known it can be useful to send it first with sendint for example
-int sendf(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data) {
+int sendf(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data, int (*sendwcb)(void* buf, int* pto_send, void* data), void* sendwcb_data) {
 	int ret = 0;
 	sendf_bag bag;
 	void* buf;
@@ -568,6 +639,9 @@ int sendf(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_
 	bag.send_size = send_size;
 	bag.sent_total = 0;
 	bag.buf_size = bufsize;
+	bag.sendwcb = sendwcb;
+	bag.sendwcb_data = sendwcb_data;
+
 	bag.stcb = stcb;
 	bag.interval_ms = interval_ms;
 	bag.tcb_data = tcb_data;
@@ -584,8 +658,8 @@ int sendf(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_
 	bag.speed_Bps = 0.0;
 
 	bag.tmlastcb_ms = tm;
-	if (stcb != NULL) {
-		ret = stcb(0, send_size, 0, 0.0, tcb_data); // first time call it
+	if (stcb != NULL) {  // callback the first time
+		ret = stcb(0, send_size, 0, 0.0, tcb_data);
 		if (ret < 0) {
 			free(buf);
 			return -1;
@@ -607,7 +681,7 @@ int sendf(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_
 		bag.speed_Bps = 1000.0*(double)(sent_total - bag.sent_total_lastcb)/(double)delta_tm;
 	}
 	bag.tmlastcb_ms = tm;
-	if (stcb != NULL && delta_tm > 0) {
+	if (stcb != NULL) {// && delta_tm > 0) {  // callback the last time
 		ret = stcb(sent_total, send_size, tm - bag.tmstart_ms, bag.speed_Bps, tcb_data); // last time call it
 		if (ret < 0) {
 			free(buf);
@@ -627,13 +701,14 @@ int sendf(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_
 
 
 
-typedef struct recvmm_bag {
+typedef struct recvm_bag {
 	const void* needle;
 	int needle_len;
-} recvmm_bag;
+} recvm_bag;
 
-int recvmm_acb(void* buf, int rcvd_processed, int* prcvd_last, void* data) {
-	recvmm_bag *pbag = (recvmm_bag*)data;
+// we could build recvam_cb on top of recvwm_cb
+int recvam_cb(void* buf, int rcvd_processed, int* prcvd_last, void* data) {
+	recvm_bag *pbag = (recvm_bag*)data;
 	const void* needle = pbag->needle;
 	int needle_len = pbag->needle_len;
 	void* begin;
@@ -655,30 +730,49 @@ int recvmm_acb(void* buf, int rcvd_processed, int* prcvd_last, void* data) {
 	}
 }
 
-int recvmm(int socket, void* buf, int maxsize, const void* needle, int needle_len) {
+int recvwm_cb(void* buf, int* prcvd_last, void* data) {
+	recvm_bag *pbag = (recvm_bag*)data;
+	const void* needle = pbag->needle;
+	int needle_len = pbag->needle_len;
+	void* begin;
+
+	int rcvd_last = *prcvd_last;
+
+	begin = memmem2(buf, rcvd_last, needle, needle_len);
+	if (begin == NULL) {
+		return 1; // continue to receive because the needle was not found
+	}
+	else {
+		// needle was found, recompute the rcvd_size and exit
+		rcvd_last = (char*)begin - (char*)buf;
+		rcvd_last += needle_len; // include the needle in the received message
+		*prcvd_last = rcvd_last;
+		return 0; // stop
+	}
+}
+
+
+int recvm(int socket, void* buf, int maxsize, const void* needle, int needle_len) {
 	int ret;
-	recvmm_bag bag;
+	recvm_bag bag;
 	bag.needle = needle;
 	bag.needle_len = needle_len;
-	ret = recva(socket, buf, maxsize, recvmm_acb, &bag);
+	ret = recva(socket, buf, maxsize, recvam_cb, &bag);
 	return ret;
 }
 
-
-int recvs(int socket, char* s, int maxsize) {
+int recvfm(int socket, FILE* f, int max_recv_size, int bufsize, int (*rtcb)(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data, const void* needle, int needle_len) {
 	int ret;
-	ret = recvmm(socket, (void*)s, maxsize, (const void*)"\0", 1);
-	s[ret] = '\0'; // if the recvmm failed to return all the data add a '\0' to make sure the string is terminated
+	recvm_bag bag;
+	bag.needle = needle;
+	bag.needle_len = needle_len;
+	ret = recvf(socket, f, max_recv_size, bufsize, rtcb, interval_ms, tcb_data, recvwm_cb, &bag);
 	return ret;
 }
 
-int sends(int socket, const char* s) {
-	int ret;
-	ret = sendl(socket, (const void*)s, strlen(s)+1, 0);
-	return ret;
-}
 
-int sendpl(int socket, const void* buf, int size) {
+
+int sendp(int socket, const void* buf, int size) {
 	int ret;
 
 	ret = sendint(socket, size);
@@ -694,7 +788,7 @@ int sendpl(int socket, const void* buf, int size) {
 	return ret;
 }
 
-int recvpl(int socket, void* buf, int maxsize) {
+int recvp(int socket, void* buf, int maxsize) {
 	int ret;
 	int size;
 
@@ -710,6 +804,82 @@ int recvpl(int socket, void* buf, int maxsize) {
 
 	return ret;
 }
+
+int recvfp(int socket, FILE* f, int max_recv_size, int bufsize, int (*rtcb)(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data) {
+	int ret;
+	int file_size;
+
+	ret = recvint(socket, &file_size);
+	if (ret < 0) {
+		return -1;
+	}
+
+	if (max_recv_size != 0) { // max_recv_size == 0 means unlimited recv size
+		file_size = min(file_size, max_recv_size);
+	}
+
+	ret = recvf(socket, f, file_size, bufsize, rtcb, interval_ms, tcb_data, NULL, NULL);
+	if (ret < 0) {
+		return -1;
+	}
+
+	return ret;
+}
+
+int sendfp(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data) {
+	int ret;
+	int pos;
+	int file_size;
+
+	if (send_size == 0) { // send_size == 0 means send until the end of buffer (unlimited)
+		pos = ftell(f);
+		fseek(f, 0, SEEK_END);
+		file_size = ftell(f) - pos;
+		fseek(f, pos, SEEK_SET);
+	}
+	else {
+		file_size = send_size;
+	}
+
+	ret = sendint(socket, file_size);
+	if (ret < 0) {
+		return -1;
+	}
+
+	ret = sendf(socket, f, file_size, bufsize, stcb, interval_ms, tcb_data, NULL, NULL);
+
+	return ret;
+}
+
+
+int recvsm(int socket, char* s, int maxsize) {
+	int ret;
+	ret = recvm(socket, (void*)s, maxsize, (const void*)"\0", 1);
+	// if the recvmm failed to return all the data add a '\0' to make sure the string is terminated
+	// but if everything went well the next line should be useless
+	s[ret] = '\0';
+	return ret;
+}
+
+int sendsm(int socket, const char* s) {
+	int ret;
+	ret = sendl(socket, (const void*)s, strlen(s)+1, 0);
+	return ret;
+}
+
+int recvsp(int socket, char* s, int maxsize) {
+	int ret;
+	ret = recvp(socket, (void*)s, maxsize - sizeof(char));
+	s[ret] = '\0'; // add a '\0' to make sure the string is terminated
+	return ret;
+}
+
+int sendsp(int socket, const char* s) {
+	int ret;
+	ret = sendp(socket, (const void*)s, strlen(s));
+	return ret;
+}
+
 
 int sendchar(int socket, const char c) {
 	int ret = 0;
@@ -784,38 +954,131 @@ int recvdouble(int socket, double* pf) {
 }
 
 
-int setsocktimeouts(int socket, int sendto_sec, int recvto_sec) {
+int setsockrcvtimeout(int socket, int recvto_s, int recvto_us) {
 	int ret;
 	struct timeval timeout;
 
-	timeout.tv_sec = recvto_sec;
-	timeout.tv_usec = 0;
-	ret = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (void*)&timeout, sizeof(timeout));
-	if (ret < 0)
-		return -1;
-
-	timeout.tv_sec = sendto_sec;
-	timeout.tv_usec = 0;
-	ret = setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (void*)&timeout, sizeof(timeout));
+	timeout.tv_sec = recvto_s;
+	timeout.tv_usec = recvto_us;
+	ret = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (void*)&timeout, sizeof(struct timeval));
 	if (ret < 0)
 		return -1;
 
 	return 0;
 }
 
+int setsocksndtimeout(int socket, int sendto_s, int sendto_us) {
+	int ret;
+	struct timeval timeout;
 
-int setsockblocking(int socket, int nonblock)
+	timeout.tv_sec = sendto_s;
+	timeout.tv_usec = sendto_us;
+	ret = setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (void*)&timeout, sizeof(struct timeval));
+	if (ret < 0)
+		return -1;
+
+	return 0;
+}
+
+int getsockrcvtimeout(int socket, int* precvto_s, int* precvto_us) {
+	int ret;
+	struct timeval timeout;
+	int optlen;
+
+	optlen = sizeof(struct timeval);
+	ret = getsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (void*)&timeout, &optlen);
+	if (ret < 0)
+		return -1;
+
+	if (precvto_s != NULL)
+		*precvto_s = timeout.tv_sec;
+	if (precvto_us != NULL)
+		*precvto_us = timeout.tv_usec;
+
+	return 0;
+}
+
+int getsocksndtimeout(int socket, int* psendto_s, int* psendto_us) {
+	int ret;
+	struct timeval timeout;
+	int optlen;
+
+	optlen = sizeof(struct timeval);
+	ret = getsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (void*)&timeout, &optlen);
+	if (ret < 0)
+		return -1;
+
+	if (psendto_s != NULL)
+		*psendto_s = timeout.tv_sec;
+	if (psendto_us != NULL)
+		*psendto_us = timeout.tv_usec;
+
+	return 0;
+}
+
+int setsockrcvbsize(int socket, int buf_size) {
+	int ret;
+
+	ret = setsockopt(socket, SOL_SOCKET, SO_RCVBUF, (void*)&buf_size, sizeof(int));
+	if (ret < 0)
+		return -1;
+
+	return 0;
+}
+
+int setsocksndbsize(int socket, int buf_size) {
+	int ret;
+
+	ret = setsockopt(socket, SOL_SOCKET, SO_SNDBUF, (void*)&buf_size, sizeof(int));
+	if (ret < 0)
+		return -1;
+
+	return 0;
+}
+
+int getsockrcvbsize(int socket, int* pbuf_size) {
+	int ret;
+	int opt;
+	int optlen;
+
+	optlen = sizeof(int);
+	ret = getsockopt(socket, SOL_SOCKET, SO_RCVBUF, (void*)&opt, &optlen);
+	if (ret < 0)
+		return -1;
+
+	*pbuf_size = opt;
+
+	return 0;
+}
+
+int getsocksndbsize(int socket, int* pbuf_size) {
+	int ret;
+	int opt;
+	int optlen;
+
+	optlen = sizeof(int);
+	ret = getsockopt(socket, SOL_SOCKET, SO_SNDBUF, (void*)&opt, &optlen);
+	if (ret < 0)
+		return -1;
+
+	*pbuf_size = opt;
+
+	return 0;
+}
+
+
+int setsockblockmode(int socket, int block)
 {
 #ifdef OS_WINDOWS
-	int opts = (nonblock != 0);
+	int opts = (block == 0);
 	return ioctlsocket(socket, FIONBIO, (u_long*)&opts);
 #endif
-#ifdef OS_LINUX
+#ifdef OS_UNIX
 	int opts;
 	opts = fcntl(socket, F_GETFL);
 	if (opts < 0)
 		return -1;
-	if (nonblock != 0)
+	if (block == 0)
 		opts |= O_NONBLOCK;
 	else
 		opts &= (~O_NONBLOCK);
@@ -838,7 +1101,7 @@ int socketreadable(int socket, int seconds)
 	else
 		return select(0, &fds, NULL, NULL, NULL);
 #endif
-#ifdef OS_LINUX
+#ifdef OS_UNIX
 	int r;
 	fd_set fds;
 	struct timeval timeout;
@@ -873,38 +1136,44 @@ int setreuseaddr(int socket)
 
 
 
-u_long hnametoipv4(const char* address)
+int hnametoipv4(const char* address, struct in_addr* p_ipv4)
 {
 	struct hostent* rhost = NULL;
 	int i;
 
-	if (address == NULL)
-		return htonl(0);
-	if (address[0] == '\0')
-		return htonl(0);
+	if (address == NULL) {
+		p_ipv4->s_addr = htonl(0);
+		return -1;
+	}
+	if (address[0] == '\0') {
+		p_ipv4->s_addr = htonl(0);
+		return -1;
+	}
 
 	for (i = 0; i < strlen(address); i++)
 	{
 		if ((((address[i] < '0') || (address[i] > '9')) && (address[i] != '.')) || (i >= 16))
 		{
 			rhost = gethostbyname(address);
-			if (rhost != NULL)
-				return *(u_long*)(rhost->h_addr_list[0]);
-			else
-				return htonl(0);
+			if (rhost != NULL) {
+				p_ipv4->s_addr = *(u_long*)(rhost->h_addr_list[0]);
+				return 0;
+			}
+			else {
+				p_ipv4->s_addr = htonl(0);
+				return -1;
+			}
 		}
 	}
 
-	return inet_addr(address);
+	p_ipv4->s_addr = inet_addr(address);
+	return 0;
 }
 
-void ipv4tostr(char* ips, int ips_size, u_long ip_address)
+int ipv4tostr(const struct in_addr* p_ipv4, char* ips, int ips_size)
 {
-	struct in_addr in;
-	memset(&in, 0, sizeof(struct in_addr));
-	in.s_addr = ip_address;
-	strncpy(ips, inet_ntoa(in), ips_size);
-	return;
+	strncpy(ips, inet_ntoa(*p_ipv4), ips_size);
+	return 0;
 }
 
 

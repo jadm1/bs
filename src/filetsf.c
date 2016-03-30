@@ -8,30 +8,18 @@
 #endif
 
 int stcb(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data) {
-	printf("sent %.1f/%.1f MB, elapsed time: %.1f s, speed: %.1f MBps\n", (double)sent_total/1000000.0, (double)send_size/1000000.0, (double)elapsed_ms/1000.0, speed_Bps/1000000.0);
+	printf("sent %.1f/%.1f KB, elapsed time: %.1f s, speed: %.1f KBps\n", (double)sent_total/1000.0, (double)send_size/1000.0, (double)elapsed_ms/1000.0, speed_Bps/1000.0);
 	return 0;
 }
 int sender(int socket, FILE* f, void* query, int query_size, int buf_size, int file_size, int use_len_pfx) {
 	int ret = 0;
-	int pos;
 	int delta_t;
 
-	if (use_len_pfx) {
-		if (file_size == 0) {
-			pos = ftell(f);
-			fseek(f, 0, SEEK_END);
-			file_size = ftell(f) - pos;
-			fseek(f, pos, SEEK_SET);
-		}
-
-		ret = sendint(socket, file_size);
-		if (ret < 0) {
-			return -1;
-		}
-	}
-
 	delta_t = get_ticks_ms();
-	ret = sendf(socket, f, file_size, buf_size, stcb, 500, NULL);
+	if (use_len_pfx)
+		ret = sendfp(socket, f, file_size, buf_size, stcb, 500, NULL);
+	else
+		ret = sendf(socket, f, file_size, buf_size, stcb, 500, NULL, NULL, NULL);
 	if (ret < 0) {
 		return -1;
 	}
@@ -43,7 +31,7 @@ int sender(int socket, FILE* f, void* query, int query_size, int buf_size, int f
 
 
 int rtcb(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data) {
-	printf("received %.1f/%.1f MB, elapsed time: %.1f s, speed: %.1f MBps\n", (double)rcvd_total/1000000.0, (double)recv_size/1000000.0, (double)elapsed_ms/1000.0, speed_Bps/1000000.0);
+	printf("received %.1f/%.1f KB, elapsed time: %.1f s, speed: %.1f KBps\n", (double)rcvd_total/1000.0, (double)recv_size/1000.0, (double)elapsed_ms/1000.0, speed_Bps/1000.0);
 	return 0;
 }
 int receiver(int socket, FILE* f, void* query, int query_size, int buf_size, int file_size, int use_len_pfx) {
@@ -58,15 +46,11 @@ int receiver(int socket, FILE* f, void* query, int query_size, int buf_size, int
 		printf("sent %d bytes\n", ret);
 	}
 
-	if (use_len_pfx) {
-		ret = recvint(socket, &file_size);
-		if (ret < 0) {
-			return -1;
-		}
-	}
-
 	delta_t = get_ticks_ms();
-	ret = recvf(socket, f, file_size, buf_size, rtcb, 500, NULL);
+	if (use_len_pfx)
+		ret = recvfp(socket, f, file_size, buf_size, rtcb, 500, NULL);
+	else
+		ret = recvf(socket, f, file_size, buf_size, rtcb, 500, NULL, NULL, NULL);
 	if (ret < 0) {
 		return -1;
 	}
@@ -98,7 +82,7 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 
 	sin_s.sin_family = AF_INET;
 	sin_s.sin_port = htons((unsigned short)host_port);
-	sin_s.sin_addr.s_addr = hnametoipv4(host_address);
+	hnametoipv4(host_address, &sin_s.sin_addr);
 
 	ret = bind(socket_s, (const struct sockaddr*)&sin_s, sizeof(sin_s));
 	if (ret < 0) {
@@ -127,7 +111,7 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 		return -1;
 	}
 
-	ipv4tostr(client_ip, 16, sin_c.sin_addr.s_addr);
+	ipv4tostr(&sin_c.sin_addr, client_ip, 16);
 	client_port = (int)ntohs(sin_c.sin_port);
 
 	printf("Client connected ! from %s:%d\n", client_ip, client_port);
@@ -163,7 +147,7 @@ int client(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 
 	sin_c.sin_family = AF_INET;
 	sin_c.sin_port = htons((unsigned short)host_port);
-	sin_c.sin_addr.s_addr = hnametoipv4(host_address);
+	hnametoipv4(host_address, &sin_c.sin_addr);
 
 	printf("Connection to %s:%d\n", host_address, host_port);
 
@@ -214,7 +198,7 @@ int main(int argc, char** argv) {
 	use_len_prefix = 0;
 
 	if(argc <= 3) {
-		printf("usage: %s <-s (server) / -c (client)> <-i file to send / -o file to recv> [-a address] [-p port] [-q query file] [-b buffer size] [-l file size] [-x use length prefix]\n", argv[0]);
+		printf("usage: %s <-s (server) / -c (client)> <-i file to send / -o file to recv> [-a address] [-p port] [-q query file] [-b buffer size] [-l file size] [-x (use length prefix)]\n", argv[0]);
 		ret = -1;
 		goto BACK;
 	}
@@ -223,13 +207,13 @@ int main(int argc, char** argv) {
 		// Default parameters for server
 		is_server = 1;
 		address = "0.0.0.0";
-		is_sender = 0;
+		is_sender = 1;
 	}
 	else if (!strcmp(argv[1], "-c")) {
 		// Default parameters for client
 		is_server = 0;
 		address = "localhost";
-		is_sender = 1;
+		is_sender = 0;
 	}
 	else {
 		printf("bad option %s\n", argv[1]);
@@ -237,32 +221,28 @@ int main(int argc, char** argv) {
 		goto BACK;
 	}
 
-	if (!strcmp(argv[2], "-i")) {
-		is_sender = 1;
-		f = fopen(argv[3], "rb");
-		if (f == NULL) {
-			ret = -1;
-			return ret;
-		}
-	}
-	else if (!strcmp(argv[2], "-o")) {
-		is_sender = 0;
-		f = fopen(argv[3], "wb");
-		if (f == NULL) {
-			ret = -1;
-			return ret;
-		}
-	}
-	else {
-		printf("bad option %s\n", argv[2]);
-		ret = -1;
-		goto BACK;
-	}
-
-	for(i = 4; i < argc; i++) {
+	for(i = 2; i < argc; i++) {
 		if (!strcmp(argv[i], "-a")) {
 			i += 1;
 			address = argv[i];
+		}
+		else if (!strcmp(argv[i], "-i")) {
+			i += 1;
+			is_sender = 1;
+			f = fopen(argv[i], "rb");
+			if (f == NULL) {
+				ret = -1;
+				return ret;
+			}
+		}
+		else if (!strcmp(argv[i], "-o")) {
+			i += 1;
+			is_sender = 0;
+			f = fopen(argv[i], "wb");
+			if (f == NULL) {
+				ret = -1;
+				return ret;
+			}
 		}
 		else if (!strcmp(argv[i], "-p")) {
 			i += 1;
@@ -300,7 +280,12 @@ int main(int argc, char** argv) {
 		}
 	}
 
-
+	if (is_sender && f == NULL) {
+		f = stdin;
+	}
+	if (!is_sender && f == NULL) {
+		f = stdout;
+	}
 
 	if (is_server) {
 		server(address, port, is_sender, f, query, query_size, buf_size, file_size, use_len_prefix);
