@@ -1,5 +1,8 @@
-#include "bs.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <math.h>
+#include "bs.h"
 
 #ifndef min
 #define min(a, b) ((b > a) ? (a) : (b))
@@ -73,29 +76,18 @@ int sender(int socket, FILE* fin, FILE* fout, int buf_size) {
 int client(char* host_address, int host_port, FILE* fin, FILE* fout, int buf_size) {
 	int ret = 0;
 	int socket_c;
-	struct sockaddr_in sin_c;
 
-	ret = loadsocklib();
-	if (ret < 0)
-		return -1;
-
-	socket_c = socket(AF_INET, SOCK_STREAM, 0);
-	if (socket_c < 0) {
-		freesocklib();
+	ret = socktcp(&socket_c);
+	if (ret < 0) {
 		return -1;
 	}
 
-	sin_c.sin_family = AF_INET;
-	sin_c.sin_port = htons((unsigned short)host_port);
-	hnametoipv4(host_address, &sin_c.sin_addr);
-
 	printf("Connection to %s:%d\n", host_address, host_port);
 
-	ret = connect(socket_c, (const struct sockaddr*)&sin_c, sizeof(sin_c));
+	ret = sockconnect(socket_c, host_address, host_port);
 	if (ret < 0) {
 		printf("connect() failed !\n");
 		sockclose(socket_c);
-		freesocklib();
 		return -1;
 	}
 	printf("Connection successful !\n");
@@ -105,7 +97,6 @@ int client(char* host_address, int host_port, FILE* fin, FILE* fout, int buf_siz
 	printf("Disconnecting...\n");
 
 	sockclose(socket_c);
-	freesocklib();
 
 	return ret;
 }
@@ -168,9 +159,15 @@ int main(int argc, char** argv) {
 		}
 	}
 
-
+	ret = loadsocklib();
+	if (ret < 0)
+		return -1;
 
 	client(address, port, fin, fout, buf_size);
+
+	freesocklib();
+
+
 	if (fin != stdin)
 		fclose(fin);
 	if (fout != stdout)

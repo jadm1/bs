@@ -7,34 +7,16 @@ extern "C" {
 
 
 #include <stdio.h>
-#include <stdlib.h>
-
-#ifdef WIN32
-	#define OS_WINDOWS
-#else
-	#define OS_UNIX // bad way of checking,... to change later
-#endif
-
-#ifdef OS_WINDOWS
-#include <winsock2.h>
-#include <windows.h>
-#include <ws2tcpip.h>
-#endif
-#ifdef OS_UNIX
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/times.h>
-#include <arpa/inet.h>
-#include <string.h>
-#include <unistd.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <fcntl.h>
-#endif
 
 int loadsocklib(void);
 int freesocklib(void);
+int socktcp(int* psocket);
 int sockclose(int socket);
+
+int sockconnect(int socket, const char* address, int port);
+int socklisten(int socket, const char* address, int port, int n);
+int sockaccept(int socket, int* p_c_socket, char* c_address, int* p_c_port);
+int hnametoipv4(const char* address, char* ipv4str);
 
 int sendl(int socket, const void* buf, int size, int flags);
 int recvl(int socket, void* buf, int recvsize, int flags);
@@ -79,16 +61,6 @@ int recvfloat(int socket, float* pf);
 int senddouble(int socket, const double f);
 int recvdouble(int socket, double* pf);
 
-
-// Utility functions
-int hnametoipv4(const char* address, struct in_addr* p_ipv4);
-int ipv4tostr(const struct in_addr* p_ipv4, char* ips, int ips_size);
-int inttosaport(const int port, u_short* p_saport);
-int saporttoint(const u_short* p_saport, int* p_port);
-
-int sockconnect(int socket, const char* address, int port);
-int socklisten(int socket, const char* address, int port, int n);
-int sockaccept(int socket, int* p_c_socket, char* c_address, int* p_c_port);
 
 // Utility functions for other purposes (not very useful)
 int get_ticks_ms(void);

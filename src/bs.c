@@ -1,5 +1,31 @@
 #include "bs.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef WIN32
+	#define OS_WINDOWS
+#else
+	#define OS_UNIX // bad way of checking,... to change later
+#endif
+
+#ifdef OS_WINDOWS
+#include <winsock2.h>
+#include <windows.h>
+#include <ws2tcpip.h>
+#endif
+#ifdef OS_UNIX
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/times.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <fcntl.h>
+#endif
+
 #ifndef min
 #define min(a, b) ((b > a) ? (a) : (b))
 #endif
@@ -8,7 +34,16 @@
 #endif
 
 
-void* memmem2(const void* haystack, size_t haystack_len, const void* needle,  size_t needle_len);
+
+
+void* memmem_bs(const void* haystack, size_t haystack_len, const void* needle,  size_t needle_len);
+
+int hnametoinaddr(const char* address, struct in_addr* p_ipv4);
+int inaddrtostr(const struct in_addr* p_ipv4, char* ips, int ips_size);
+int inttosaport(const int port, u_short* p_saport);
+int saporttoint(const u_short* p_saport, int* p_port);
+
+
 
 #ifdef OS_UNIX
 int get_ticks_ms(void)
@@ -51,6 +86,18 @@ int freesocklib()
 	return -1;
 }
 
+int socktcp(int* psocket) {
+	int sock;
+
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock < 0) {
+		return -1;
+	}
+
+	*psocket = sock;
+
+	return 0;
+}
 
 int sockclose(int socket)
 {
@@ -716,7 +763,7 @@ int recvam_cb(void* buf, int rcvd_processed, int* prcvd_last, void* data) {
 	int rcvd_last = *prcvd_last;
 	int buf_size = rcvd_processed + rcvd_last;
 
-	begin = memmem2(buf, buf_size, needle, needle_len);
+	begin = memmem_bs(buf, buf_size, needle, needle_len);
 	if (begin == NULL) {
 		return 1; // continue to receive because the needle was not found
 	}
@@ -738,7 +785,7 @@ int recvwm_cb(void* buf, int* prcvd_last, void* data) {
 
 	int rcvd_last = *prcvd_last;
 
-	begin = memmem2(buf, rcvd_last, needle, needle_len);
+	begin = memmem_bs(buf, rcvd_last, needle, needle_len);
 	if (begin == NULL) {
 		return 1; // continue to receive because the needle was not found
 	}
@@ -1136,7 +1183,7 @@ int setreuseaddr(int socket)
 
 
 
-int hnametoipv4(const char* address, struct in_addr* p_ipv4)
+int hnametoinaddr(const char* address, struct in_addr* p_ipv4)
 {
 	struct hostent* rhost = NULL;
 	int i;
@@ -1170,7 +1217,7 @@ int hnametoipv4(const char* address, struct in_addr* p_ipv4)
 	return 0;
 }
 
-int ipv4tostr(const struct in_addr* p_ipv4, char* ips, int ips_size)
+int inaddrtostr(const struct in_addr* p_ipv4, char* ips, int ips_size)
 {
 	strncpy(ips, inet_ntoa(*p_ipv4), ips_size);
 	return 0;
@@ -1186,13 +1233,30 @@ int saporttoint(const u_short* p_saport, int* p_port) {
 	return 0;
 }
 
+int hnametoipv4(const char* address, char* ipv4str) {
+	int ret = 0;
+	struct in_addr ipv4;
+
+	ret = hnametoinaddr(address, &ipv4);
+	if (ret < 0) {
+		return -1;
+	}
+
+	ret = inaddrtostr(&ipv4, ipv4str, 16);
+	if (ret < 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
 int sockconnect(int socket, const char* address, int port) {
 	int ret = 0;
 	struct sockaddr_in sin_c;
 
 	sin_c.sin_family = AF_INET;
 	inttosaport(port, &sin_c.sin_port);
-	hnametoipv4(address, &sin_c.sin_addr);
+	hnametoinaddr(address, &sin_c.sin_addr);
 
 	ret = connect(socket, (struct sockaddr*)&sin_c, sizeof(struct sockaddr_in));
 
@@ -1205,7 +1269,7 @@ int socklisten(int socket, const char* address, int port, int n) {
 
 	sin_s.sin_family = AF_INET;
 	inttosaport(port, &sin_s.sin_port);
-	hnametoipv4(address, &sin_s.sin_addr);
+	hnametoinaddr(address, &sin_s.sin_addr);
 
 	ret = bind(socket, (const struct sockaddr*)&sin_s, sizeof(sin_s));
 	if (ret < 0) {
@@ -1235,7 +1299,7 @@ int sockaccept(int s_socket, int* p_c_socket, char* c_address, int* p_c_port) {
 	*p_c_socket = socket_c;
 
 	if (c_address != NULL)
-		ipv4tostr(&sin_c.sin_addr, c_address, 16);
+		inaddrtostr(&sin_c.sin_addr, c_address, 16);
 	if (p_c_port != NULL)
 		saporttoint(&sin_c.sin_port, p_c_port);
 
@@ -1244,7 +1308,7 @@ int sockaccept(int s_socket, int* p_c_socket, char* c_address, int* p_c_port) {
 
 
 /* Return the first occurrence of NEEDLE in HAYSTACK.  */
-void* memmem2(const void* haystack, size_t haystack_len, const void* needle,  size_t needle_len)
+void* memmem_bs(const void* haystack, size_t haystack_len, const void* needle,  size_t needle_len)
 {
 	const char *begin;
 	const char *const last_possible = (const char *) haystack + haystack_len - needle_len;

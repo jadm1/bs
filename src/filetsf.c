@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "bs.h"
 
 #ifndef min
@@ -64,55 +67,29 @@ int receiver(int socket, FILE* f, void* query, int query_size, int buf_size, int
 int server(char* host_address, int host_port, int is_sender, FILE* f, void* query, int query_size, int buf_size, int file_size, int use_len_pfx) {
 	int ret = 0;
 	int socket_s, socket_c;
-	struct sockaddr_in sin_s, sin_c;
-	unsigned int accept_sockaddr_len;
 	char client_ip[16];
 	int client_port;
 
-
-	ret = loadsocklib();
-	if (ret < 0)
-		return -1;
-
-	socket_s = socket(AF_INET, SOCK_STREAM, 0);
-	if (socket_s < 0) {
-		freesocklib();
+	ret = socktcp(&socket_s);
+	if (ret < 0) {
 		return -1;
 	}
 
-	sin_s.sin_family = AF_INET;
-	sin_s.sin_port = htons((unsigned short)host_port);
-	hnametoipv4(host_address, &sin_s.sin_addr);
-
-	ret = bind(socket_s, (const struct sockaddr*)&sin_s, sizeof(sin_s));
+	ret = socklisten(socket_s, host_address, host_port, 1);
 	if (ret < 0) {
 		sockclose(socket_s);
-		freesocklib();
-		return -1;
-	}
-
-	ret = listen(socket_s, 1);
-	if (ret < 0) {
-		sockclose(socket_s);
-		freesocklib();
 		return -1;
 	}
 
 	printf("Listening on %s:%d\n", host_address, host_port);
-
 	printf("Accepting connections...\n");
 
-	accept_sockaddr_len = sizeof(struct sockaddr_in);
-	socket_c = accept(socket_s, (struct sockaddr*)&sin_c, &accept_sockaddr_len);
-	if (socket_c < 0) {
+	ret = sockaccept(socket_s, &socket_c, client_ip, &client_port);
+	if (ret < 0) {
 		printf("Error on accept() !\n");
 		sockclose(socket_s);
-		freesocklib();
 		return -1;
 	}
-
-	ipv4tostr(&sin_c.sin_addr, client_ip, 16);
-	client_port = (int)ntohs(sin_c.sin_port);
 
 	printf("Client connected ! from %s:%d\n", client_ip, client_port);
 
@@ -126,36 +103,24 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 	sockclose(socket_c);
 	printf("Shutting down server...\n");
 	sockclose(socket_s);
-	freesocklib();
 	return ret;
 }
 
 int client(char* host_address, int host_port, int is_sender, FILE* f, void* query, int query_size, int buf_size, int file_size, int use_len_pfx) {
 	int ret = 0;
 	int socket_c;
-	struct sockaddr_in sin_c;
 
-	ret = loadsocklib();
-	if (ret < 0)
-		return -1;
-
-	socket_c = socket(AF_INET, SOCK_STREAM, 0);
-	if (socket_c < 0) {
-		freesocklib();
+	ret = socktcp(&socket_c);
+	if (ret < 0) {
 		return -1;
 	}
 
-	sin_c.sin_family = AF_INET;
-	sin_c.sin_port = htons((unsigned short)host_port);
-	hnametoipv4(host_address, &sin_c.sin_addr);
-
 	printf("Connection to %s:%d\n", host_address, host_port);
 
-	ret = connect(socket_c, (const struct sockaddr*)&sin_c, sizeof(sin_c));
+	ret = sockconnect(socket_c, host_address, host_port);
 	if (ret < 0) {
 		printf("connect() failed !\n");
 		sockclose(socket_c);
-		freesocklib();
 		return -1;
 	}
 	printf("Connection successful !\n");
@@ -169,7 +134,6 @@ int client(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 
 	printf("Disconnecting...\n");
 	sockclose(socket_c);
-	freesocklib();
 	return ret;
 }
 
@@ -287,12 +251,18 @@ int main(int argc, char** argv) {
 		f = stdout;
 	}
 
+	ret = loadsocklib();
+	if (ret < 0)
+		return -1;
+
 	if (is_server) {
 		server(address, port, is_sender, f, query, query_size, buf_size, file_size, use_len_prefix);
 	}
 	else {
 		client(address, port, is_sender, f, query, query_size, buf_size, file_size, use_len_prefix);
 	}
+
+	freesocklib();
 
 	if (query != NULL)
 		free(query);
