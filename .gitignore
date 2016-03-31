@@ -3,3 +3,4 @@ obj/*
 .cproject
 .project
 .settings
+env-cmd.bat

@@ -33,10 +33,9 @@ extern "C" {
 #endif
 
 int loadsocklib(void);
-int unloadsocklib(void);
-int sclose(int socket);
+int freesocklib(void);
+int sockclose(int socket);
 
-// More reliable functions for socket communication
 int sendl(int socket, const void* buf, int size, int flags);
 int recvl(int socket, void* buf, int recvsize, int flags);
 int recva(int socket, void* buf, int maxsize, int (*recvacb)(void* buf, int rcvd_processed, int* prcvd_last, void* data), void* recvacb_data);
@@ -64,7 +63,7 @@ int sendsp(int socket, const char* s);
 		char* buf = (char*)malloc(size); if (buf != NULL){\
 		snprintf(buf, size, s, __VA_ARGS__);\
 		if(p_ret!=NULL) *p_ret = sendsp(socket, buf);\
-		else sendsp(socket, s); free((void*)buf);} else {if(p_ret!=NULL) *p_ret=-1}}
+		else sendsp(socket, s); free((void*)buf);} else {if(p_ret!=NULL) *p_ret=-1;}}
 
 
 int sendchar(int socket, const char c);
@@ -84,7 +83,12 @@ int recvdouble(int socket, double* pf);
 // Utility functions
 int hnametoipv4(const char* address, struct in_addr* p_ipv4);
 int ipv4tostr(const struct in_addr* p_ipv4, char* ips, int ips_size);
+int inttosaport(const int port, u_short* p_saport);
+int saporttoint(const u_short* p_saport, int* p_port);
 
+int sockconnect(int socket, const char* address, int port);
+int socklisten(int socket, const char* address, int port, int n);
+int sockaccept(int socket, int* p_c_socket, char* c_address, int* p_c_port);
 
 // Utility functions for other purposes (not very useful)
 int get_ticks_ms(void);

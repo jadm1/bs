@@ -81,7 +81,7 @@ int client(char* host_address, int host_port, FILE* fin, FILE* fout, int buf_siz
 
 	socket_c = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_c < 0) {
-		unloadsocklib();
+		freesocklib();
 		return -1;
 	}
 
@@ -94,8 +94,8 @@ int client(char* host_address, int host_port, FILE* fin, FILE* fout, int buf_siz
 	ret = connect(socket_c, (const struct sockaddr*)&sin_c, sizeof(sin_c));
 	if (ret < 0) {
 		printf("connect() failed !\n");
-		sclose(socket_c);
-		unloadsocklib();
+		sockclose(socket_c);
+		freesocklib();
 		return -1;
 	}
 	printf("Connection successful !\n");
@@ -104,8 +104,8 @@ int client(char* host_address, int host_port, FILE* fin, FILE* fout, int buf_siz
 
 	printf("Disconnecting...\n");
 
-	sclose(socket_c);
-	unloadsocklib();
+	sockclose(socket_c);
+	freesocklib();
 
 	return ret;
 }

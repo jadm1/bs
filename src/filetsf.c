@@ -76,7 +76,7 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 
 	socket_s = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_s < 0) {
-		unloadsocklib();
+		freesocklib();
 		return -1;
 	}
 
@@ -86,15 +86,15 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 
 	ret = bind(socket_s, (const struct sockaddr*)&sin_s, sizeof(sin_s));
 	if (ret < 0) {
-		sclose(socket_s);
-		unloadsocklib();
+		sockclose(socket_s);
+		freesocklib();
 		return -1;
 	}
 
 	ret = listen(socket_s, 1);
 	if (ret < 0) {
-		sclose(socket_s);
-		unloadsocklib();
+		sockclose(socket_s);
+		freesocklib();
 		return -1;
 	}
 
@@ -106,8 +106,8 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 	socket_c = accept(socket_s, (struct sockaddr*)&sin_c, &accept_sockaddr_len);
 	if (socket_c < 0) {
 		printf("Error on accept() !\n");
-		sclose(socket_s);
-		unloadsocklib();
+		sockclose(socket_s);
+		freesocklib();
 		return -1;
 	}
 
@@ -123,10 +123,10 @@ int server(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 		ret = receiver(socket_c, f, query, query_size, buf_size, file_size, use_len_pfx);
 	}
 
-	sclose(socket_c);
+	sockclose(socket_c);
 	printf("Shutting down server...\n");
-	sclose(socket_s);
-	unloadsocklib();
+	sockclose(socket_s);
+	freesocklib();
 	return ret;
 }
 
@@ -141,7 +141,7 @@ int client(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 
 	socket_c = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_c < 0) {
-		unloadsocklib();
+		freesocklib();
 		return -1;
 	}
 
@@ -154,8 +154,8 @@ int client(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 	ret = connect(socket_c, (const struct sockaddr*)&sin_c, sizeof(sin_c));
 	if (ret < 0) {
 		printf("connect() failed !\n");
-		sclose(socket_c);
-		unloadsocklib();
+		sockclose(socket_c);
+		freesocklib();
 		return -1;
 	}
 	printf("Connection successful !\n");
@@ -168,8 +168,8 @@ int client(char* host_address, int host_port, int is_sender, FILE* f, void* quer
 	}
 
 	printf("Disconnecting...\n");
-	sclose(socket_c);
-	unloadsocklib();
+	sockclose(socket_c);
+	freesocklib();
 	return ret;
 }
 

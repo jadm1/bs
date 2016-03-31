@@ -40,7 +40,7 @@ int loadsocklib()
 	return -1;
 }
 
-int unloadsocklib()
+int freesocklib()
 {
 #ifdef OS_WINDOWS
 	return WSACleanup();
@@ -52,7 +52,7 @@ int unloadsocklib()
 }
 
 
-int sclose(int socket)
+int sockclose(int socket)
 {
 #ifdef OS_WINDOWS
 	int ret = 0;
@@ -1174,6 +1174,72 @@ int ipv4tostr(const struct in_addr* p_ipv4, char* ips, int ips_size)
 {
 	strncpy(ips, inet_ntoa(*p_ipv4), ips_size);
 	return 0;
+}
+
+int inttosaport(const int port, u_short* p_saport) {
+	*p_saport = htons((unsigned short)port);
+	return 0;
+}
+
+int saporttoint(const u_short* p_saport, int* p_port) {
+	*p_port = (int)ntohs(*p_saport);
+	return 0;
+}
+
+int sockconnect(int socket, const char* address, int port) {
+	int ret = 0;
+	struct sockaddr_in sin_c;
+
+	sin_c.sin_family = AF_INET;
+	inttosaport(port, &sin_c.sin_port);
+	hnametoipv4(address, &sin_c.sin_addr);
+
+	ret = connect(socket, (struct sockaddr*)&sin_c, sizeof(struct sockaddr_in));
+
+	return ret;
+}
+
+int socklisten(int socket, const char* address, int port, int n) {
+	int ret = 0;
+	struct sockaddr_in sin_s;
+
+	sin_s.sin_family = AF_INET;
+	inttosaport(port, &sin_s.sin_port);
+	hnametoipv4(address, &sin_s.sin_addr);
+
+	ret = bind(socket, (const struct sockaddr*)&sin_s, sizeof(sin_s));
+	if (ret < 0) {
+		return -1;
+	}
+
+	ret = listen(socket, n);
+	if (ret < 0) {
+		return -1;
+	}
+
+	return ret;
+}
+
+int sockaccept(int s_socket, int* p_c_socket, char* c_address, int* p_c_port) {
+	int ret = 0;
+	int socket_c;
+	unsigned int accept_sockaddr_len;
+	struct sockaddr_in sin_c;
+
+	accept_sockaddr_len = sizeof(struct sockaddr_in);
+	socket_c = accept(s_socket, (struct sockaddr*)&sin_c, &accept_sockaddr_len);
+	if (socket_c < 0) {
+		return -1;
+	}
+
+	*p_c_socket = socket_c;
+
+	if (c_address != NULL)
+		ipv4tostr(&sin_c.sin_addr, c_address, 16);
+	if (p_c_port != NULL)
+		saporttoint(&sin_c.sin_port, p_c_port);
+
+	return ret;
 }
 
 
