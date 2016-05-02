@@ -7,7 +7,8 @@ int sender(int socket) {
 	int ret = 0;
 	char *buf;
 	int buf_size;
-	int to_s;
+
+	double v[3];
 
 	buf_size = 65536;
 	buf = (char*)malloc(buf_size);
@@ -16,12 +17,15 @@ int sender(int socket) {
 		return -1;
 	}
 
-	getsockrcvbsize(socket, &to_s);
-	printf("network recv buf size: %d\n", to_s);
 
-	sendprintf(&ret, socket, "%s", "Hello !\n");
+	//sendprintf(&ret, socket, "%s", "Hello !\n");
 
 
+	v[0] = 3.0;
+	v[1] = 42.0;
+	v[2] = -1.0;
+
+	ret = sendndoubles(socket, v, 3);
 
 	free(buf);
 
@@ -33,6 +37,9 @@ int receiver(int socket) {
 	char *buf;
 	int buf_size;
 
+	double v[3];
+	int i;
+
 	buf_size = 65536;
 	buf = (char*)malloc(buf_size);
 	if (buf == NULL) {
@@ -40,9 +47,12 @@ int receiver(int socket) {
 		return -1;
 	}
 
+	//recvprintf(&ret, socket, 1024);
 
-	recvprintf(&ret, socket, 1024);
 
+	ret = recvndoubles(socket, v, 3);
+	for (i = 0; i < 3; i++)
+		printf("v[%d] = %g\n", i, v[i]);
 
 	free(buf);
 

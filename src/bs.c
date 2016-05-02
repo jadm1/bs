@@ -5,9 +5,9 @@
 #include <string.h>
 
 #ifdef WIN32
-	#define OS_WINDOWS
+#define OS_WINDOWS
 #else
-	#define OS_UNIX // bad way of checking,... to change later
+#define OS_UNIX // bad way of checking,... to change later
 #endif
 
 #ifdef OS_WINDOWS
@@ -34,7 +34,7 @@
 #endif
 
 
-
+int get_ticks_ms(void);
 
 void* memmem_bs(const void* haystack, size_t haystack_len, const void* needle,  size_t needle_len);
 
@@ -822,7 +822,7 @@ int recvfm(int socket, FILE* f, int max_recv_size, int bufsize, int (*rtcb)(int 
 int sendp(int socket, const void* buf, int size) {
 	int ret;
 
-	ret = sendint(socket, size);
+	ret = sendnints(socket, &size, 1);
 	if (ret < 0) {
 		return -1;
 	}
@@ -839,7 +839,7 @@ int recvp(int socket, void* buf, int maxsize) {
 	int ret;
 	int size;
 
-	ret = recvint(socket, &size);
+	ret = recvnints(socket, &size, 1);
 	if (ret < 0) {
 		return -1;
 	}
@@ -856,7 +856,7 @@ int recvfp(int socket, FILE* f, int max_recv_size, int bufsize, int (*rtcb)(int 
 	int ret;
 	int file_size;
 
-	ret = recvint(socket, &file_size);
+	ret = recvnints(socket, &file_size, 1);
 	if (ret < 0) {
 		return -1;
 	}
@@ -888,7 +888,7 @@ int sendfp(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent
 		file_size = send_size;
 	}
 
-	ret = sendint(socket, file_size);
+	ret = sendnints(socket, &file_size, 1);
 	if (ret < 0) {
 		return -1;
 	}
@@ -899,16 +899,36 @@ int sendfp(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent
 }
 
 
-int recvsm(int socket, char* s, int maxsize) {
+
+int recvsm(int socket, char* s, int maxsize, const char* needle) {
 	int ret;
-	ret = recvm(socket, (void*)s, maxsize, (const void*)"\0", 1);
+	int nlen;
+
+	nlen = strlen(needle);
+	if (nlen == 0)
+		nlen = 1;
+
+	ret = recvm(socket, (void*)s, maxsize, (const void*)needle, nlen);
 	// if the recvmm failed to return all the data add a '\0' to make sure the string is terminated
 	// but if everything went well the next line should be useless
 	s[ret] = '\0';
 	return ret;
 }
 
+// the needle should be included in s otherwise inefficient
 int sendsm(int socket, const char* s) {
+	int ret;
+	ret = sendl(socket, (const void*)s, strlen(s), 0);
+	return ret;
+}
+
+int recvs(int socket, char* s, int maxsize) {
+	int ret;
+	ret = recvsm(socket, (void*)s, maxsize, "");
+	return ret;
+}
+
+int sends(int socket, const char* s) {
 	int ret;
 	ret = sendl(socket, (const void*)s, strlen(s)+1, 0);
 	return ret;
@@ -928,77 +948,334 @@ int sendsp(int socket, const char* s) {
 }
 
 
-int sendchar(int socket, const char c) {
+
+int sendnints(int socket, int* p, int n) {
 	int ret = 0;
-	ret = sendl(socket, (const void*)&c, sizeof(char), 0);
+	int i;
+	for (i = 0; i < n; i++)
+		p[i] = htonl(p[i]);
+	ret = sendl(socket, (void*)p, n*sizeof(int), 0);
+	for (i = 0; i < n; i++)
+		p[i] = ntohl(p[i]);
+	if (ret < 0) {
+		return -1;
+	}
+
 	return ret;
 }
 
-int recvchar(int socket, char* pc) {
+int recvnints(int socket, int* p, int n) {
 	int ret = 0;
-	ret = recvl(socket, (void*)pc, sizeof(char), 0);
+	int i;
+	ret = recvl(socket, (void*)p, n*sizeof(int), 0);
+	if (ret < 0) {
+		return -1;
+	}
+	for (i = 0; i < n; i++)
+		p[i] = ntohl(p[i]);
 	return ret;
 }
 
-int sendshort(int socket, const short s) {
+int sendnlls(int socket, long long* p, int n) {
 	int ret = 0;
-	ret = sendl(socket, (const void*)&s, sizeof(short), 0);
+	int i;
+	int* b = (int*)p;
+	for (i = 0; i < n; i++) {
+		b[i*2+0] = htonl(((p[i]<<32)>>32));
+		b[i*2+1] = htonl((p[i]>>32));
+	}
+	ret = sendl(socket, (void*)p, n*sizeof(long long), 0);
+	for (i = 0; i < n; i++) {
+		p[i]   =  ((long long)b[i*2+0]);
+		p[i]  += (((long long)b[i*2+1])<<32);
+	}
+	if (ret < 0) {
+		return -1;
+	}
+	return ret;
+
 	return ret;
 }
 
-int recvshort(int socket, short* ps) {
+int recvnlls(int socket, long long* p, int n) {
 	int ret = 0;
-	ret = recvl(socket, (void*)ps, sizeof(short), 0);
+	int i;
+	int* b = (int*)p;
+	ret = recvl(socket, (void*)b, n*sizeof(long long), 0);
+	if (ret < 0) {
+		return -1;
+	}
+	for (i = 0; i < n; i++) {
+		p[i]   =  ((long long)b[i*2+0]);
+		p[i]  += (((long long)b[i*2+1])<<32);
+	}
 	return ret;
 }
 
-int sendint(int socket, const int i) {
+int sendnfloats(int socket, float* p, int n) {
 	int ret = 0;
-	ret = sendl(socket, (const void*)&i, sizeof(int), 0);
+	//int i;
+	//for (i = 0; i < n; i++)
+	//	p[i] = (p[i]);
+	ret = sendl(socket, (void*)p, n*sizeof(float), 0);
+	//for (i = 0; i < n; i++)
+	//	p[i] = (p[i]);
+	if (ret < 0) {
+		return -1;
+	}
 	return ret;
 }
 
-int recvint(int socket, int* pi) {
+int recvnfloats(int socket, float* p, int n) {
 	int ret = 0;
-	ret = recvl(socket, (void*)pi, sizeof(int), 0);
+	int i;
+	ret = recvl(socket, (void*)p, n*sizeof(float), 0);
+	if (ret < 0) {
+		return -1;
+	}
+	for (i = 0; i < n; i++)
+		p[i] = (p[i]);
 	return ret;
 }
 
-int sendlonglong(int socket, const long long i) {
+int sendndoubles(int socket, double* p, int n) {
 	int ret = 0;
-	ret = sendl(socket, (const void*)&i, sizeof(long long), 0);
+	//int i;
+	//for (i = 0; i < n; i++)
+	//	p[i] = (p[i]);
+	ret = sendl(socket, (void*)p, n*sizeof(double), 0);
+	//for (i = 0; i < n; i++)
+	//	p[i] = (p[i]);
+	if (ret < 0) {
+		return -1;
+	}
 	return ret;
 }
 
-int recvlonglong(int socket, long long* pi) {
+int recvndoubles(int socket, double* p, int n) {
 	int ret = 0;
-	ret = recvl(socket, (void*)pi, sizeof(long long), 0);
+	int i;
+	ret = recvl(socket, (void*)p, n*sizeof(double), 0);
+	if (ret < 0) {
+		return -1;
+	}
+	for (i = 0; i < n; i++)
+		p[i] = (p[i]);
 	return ret;
 }
 
-int sendfloat(int socket, const float f) {
+
+
+int sendsints(int socket, char* buf, int maxsize, const char* sep, const char* end, const int* p, int n) {
 	int ret = 0;
-	ret = sendl(socket, (const void*)&f, sizeof(float), 0);
+	int i = 0;
+	int size = 0, newsize = 0;
+	int seplen, endlen;
+	seplen = strlen(sep);
+	if (seplen == 0)
+		seplen = 1;
+	endlen = strlen(end);
+	if (endlen == 0)
+		endlen = 1;
+	while (i <= n) {
+		if (i == n || (maxsize > 0 && newsize > maxsize)) {
+			ret = sendl(socket, buf, size, 0);
+			if (ret < 0) {
+				return -1;
+			}
+			size = 0; newsize = 0;
+			if (i == n) {
+				i++;
+			}
+		}
+		else {
+			newsize = size + snprintf(NULL, 0, "%d", p[i]) + (i==n-1?endlen:seplen) + 1;
+			if (maxsize == 0 || newsize <= maxsize) {
+				snprintf(&buf[size], newsize-size, "%d", p[i]);
+				size += strlen(&buf[size]);
+				strncpy(&buf[size], (i==n-1?end:sep), newsize-size);
+				size += (i==n-1?endlen:seplen);
+				i++;
+			}
+		}
+	}
 	return ret;
 }
 
-int recvfloat(int socket, float* pf) {
+int recvsints(int socket, char* buf, int maxsize, const char* sep, const char* end, int* p, int n) {
 	int ret = 0;
-	ret = recvl(socket, (void*)pf, sizeof(float), 0);
+	int rcvd = 0;
+	int i;
+	for (i = 0; i < n; i++) {
+		ret = recvsm(socket, buf, maxsize, (i==n-1?end:sep));
+		if (ret < 0) {
+			return -1;
+		}
+		rcvd += ret;
+		p[i] = atoi(buf);
+	}
+	return rcvd;
+}
+
+int sendslls(int socket, char* buf, int maxsize, const char* sep, const char* end, const long long* p, int n) {
+	int ret = 0;
+	int i = 0;
+	int size = 0, newsize = 0;
+#ifdef OS_WINDOWS
+	char* lls = "%I64d";
+#endif
+#ifdef OS_UNIX
+	char* lls = "%lld";
+#endif
+	int seplen, endlen;
+	seplen = strlen(sep);
+	if (seplen == 0)
+		seplen = 1;
+	endlen = strlen(end);
+	if (endlen == 0)
+		endlen = 1;
+	while (i <= n) {
+		if (i == n || (maxsize > 0 && newsize > maxsize)) {
+			ret = sendl(socket, buf, size, 0);
+			if (ret < 0) {
+				return -1;
+			}
+			size = 0; newsize = 0;
+			if (i == n) {
+				i++;
+			}
+		}
+		else {
+			newsize = size + snprintf(NULL, 0, lls, p[i]) + (i==n-1?endlen:seplen) + 1;
+			if (maxsize == 0 || newsize <= maxsize) {
+				snprintf(&buf[size], newsize-size, lls, p[i]);
+				size += strlen(&buf[size]);
+				strncpy(&buf[size], (i==n-1?end:sep), newsize-size);
+				size += (i==n-1?endlen:seplen);
+				i++;
+			}
+		}
+	}
 	return ret;
 }
 
-int senddouble(int socket, const double f) {
+int recvslls(int socket, char* buf, int maxsize, const char* sep, const char* end, long long* p, int n) {
 	int ret = 0;
-	ret = sendl(socket, (const void*)&f, sizeof(double), 0);
+	int rcvd = 0;
+	int i;
+	for (i = 0; i < n; i++) {
+		ret = recvsm(socket, buf, maxsize, (i==n-1?end:sep));
+		if (ret < 0) {
+			return -1;
+		}
+		rcvd += ret;
+		p[i] = atoll(buf);
+	}
+	return rcvd;
+}
+
+int sendsfloats(int socket, char* buf, int maxsize, const char* sep, const char* end, const float* p, int n) {
+	int ret = 0;
+	int i = 0;
+	int size = 0, newsize = 0;
+	int seplen, endlen;
+	seplen = strlen(sep);
+	if (seplen == 0)
+		seplen = 1;
+	endlen = strlen(end);
+	if (endlen == 0)
+		endlen = 1;
+	while (i <= n) {
+		if (i == n || (maxsize > 0 && newsize > maxsize)) {
+			ret = sendl(socket, buf, size, 0);
+			if (ret < 0) {
+				return -1;
+			}
+			size = 0; newsize = 0;
+			if (i == n) {
+				i++;
+			}
+		}
+		else {
+			newsize = size + snprintf(NULL, 0, "%g", (double)p[i]) + (i==n-1?endlen:seplen) + 1;
+			if (maxsize == 0 || newsize <= maxsize) {
+				snprintf(&buf[size], newsize-size, "%g", (double)p[i]);
+				size += strlen(&buf[size]);
+				strncpy(&buf[size], (i==n-1?end:sep), newsize-size);
+				size += (i==n-1?endlen:seplen);
+				i++;
+			}
+		}
+	}
 	return ret;
 }
 
-int recvdouble(int socket, double* pf) {
+int recvsfloats(int socket, char* buf, int maxsize, const char* sep, const char* end, float* p, int n) {
 	int ret = 0;
-	ret = recvl(socket, (void*)pf, sizeof(double), 0);
+	int rcvd = 0;
+	int i;
+	for (i = 0; i < n; i++) {
+		ret = recvsm(socket, buf, maxsize, (i==n-1?end:sep));
+		if (ret < 0) {
+			return -1;
+		}
+		rcvd += ret;
+		p[i] = (float)atof(buf);
+	}
+	return rcvd;
+}
+
+int sendsdoubles(int socket, char* buf, int maxsize, const char* sep, const char* end, const double* p, int n) {
+	int ret = 0;
+	int i = 0;
+	int size = 0, newsize = 0;
+	int seplen, endlen;
+	seplen = strlen(sep);
+	if (seplen == 0)
+		seplen = 1;
+	endlen = strlen(end);
+	if (endlen == 0)
+		endlen = 1;
+	while (i <= n) {
+		if (i == n || (maxsize > 0 && newsize > maxsize)) {
+			ret = sendl(socket, buf, size, 0);
+			if (ret < 0) {
+				return -1;
+			}
+			size = 0; newsize = 0;
+			if (i == n) {
+				i++;
+			}
+		}
+		else {
+			newsize = size + snprintf(NULL, 0, "%g", (double)p[i]) + (i==n-1?endlen:seplen) + 1;
+			if (maxsize == 0 || newsize <= maxsize) {
+				snprintf(&buf[size], newsize-size, "%g", (double)p[i]);
+				size += strlen(&buf[size]);
+				strncpy(&buf[size], (i==n-1?end:sep), newsize-size);
+				size += (i==n-1?endlen:seplen);
+				i++;
+			}
+		}
+	}
 	return ret;
 }
+
+int recvsdoubles(int socket, char* buf, int maxsize, const char* sep, const char* end, double* p, int n) {
+	int ret = 0;
+	int rcvd = 0;
+	int i;
+	for (i = 0; i < n; i++) {
+		ret = recvsm(socket, buf, maxsize, (i==n-1?end:sep));
+		if (ret < 0) {
+			return -1;
+		}
+		rcvd += ret;
+		p[i] = (double)atof(buf);
+	}
+	return rcvd;
+}
+
 
 
 int setsockrcvtimeout(int socket, int recvto_s, int recvto_us) {
@@ -1271,11 +1548,24 @@ int socklisten(int socket, const char* address, int port, int n) {
 	inttosaport(port, &sin_s.sin_port);
 	hnametoinaddr(address, &sin_s.sin_addr);
 
+#ifdef OS_UNIX
+	// trick to prevent ports from being unavailable on some systems
+	ret = setreuseaddr(socket);
+	if (ret < 0) {
+		return -1;
+	}
+#endif
+
+	// bind data structures to a fixed port
 	ret = bind(socket, (const struct sockaddr*)&sin_s, sizeof(sin_s));
 	if (ret < 0) {
 		return -1;
 	}
 
+	// listen that is create a small queue in the OS network stack to handle incoming connections
+	// does not matter if nbacklog is not large.
+	// incoming connections should be accepted as soon as possible
+	// a higher level queue and accept mechanisms can be implemented to handle any number of clients
 	ret = listen(socket, n);
 	if (ret < 0) {
 		return -1;

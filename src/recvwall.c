@@ -12,6 +12,21 @@
 #endif
 
 
+#ifdef WIN32
+#include <windows.h>
+int timer_ms(void)
+{
+	return (int)GetTickCount();
+}
+#else
+#include <sys/times.h>
+int timer_ms(void)
+{
+	struct tms tm;
+	return times(&tm) * 10;
+}
+#endif
+
 int recvwcb(void* buf, int* prcvd_last, void* data) {
 	FILE *fout = (FILE*)data;
 	int rcvd_last = *prcvd_last;
@@ -55,14 +70,14 @@ int sender(int socket, FILE* fin, FILE* fout, int buf_size) {
 
 	printf("receiving...\n");
 	printf("\n");
-	delta_t = get_ticks_ms();
+	delta_t = timer_ms();
 	ret = recvw(socket, buf, buf_size, recvwcb, (void*)fout);
 	if (ret<0) {
 		printf("Error on recvw() !\n");
 		free(buf);
 		return -1;
 	}
-	delta_t = get_ticks_ms() - delta_t;
+	delta_t = timer_ms() - delta_t;
 	printf("\n");
 	printf("received a total of %d bytes in %.3f seconds at %d KB/s\n", ret, (double)delta_t/1000.0, (int)floor((double)ret/(double)delta_t));
 

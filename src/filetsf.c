@@ -10,6 +10,23 @@
 #define max(a, b) ((b > a) ? (b) : (a))
 #endif
 
+
+#ifdef WIN32
+#include <windows.h>
+int timer_ms(void)
+{
+	return (int)GetTickCount();
+}
+#else
+#include <sys/times.h>
+int timer_ms(void)
+{
+	struct tms tm;
+	return times(&tm) * 10;
+}
+#endif
+
+
 int stcb(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data) {
 	printf("sent %.1f/%.1f KB, elapsed time: %.1f s, speed: %.1f KBps\n", (double)sent_total/1000.0, (double)send_size/1000.0, (double)elapsed_ms/1000.0, speed_Bps/1000.0);
 	return 0;
@@ -18,7 +35,7 @@ int sender(int socket, FILE* f, void* query, int query_size, int buf_size, int f
 	int ret = 0;
 	int delta_t;
 
-	delta_t = get_ticks_ms();
+	delta_t = timer_ms();
 	if (use_len_pfx)
 		ret = sendfp(socket, f, file_size, buf_size, stcb, 500, NULL);
 	else
@@ -26,7 +43,7 @@ int sender(int socket, FILE* f, void* query, int query_size, int buf_size, int f
 	if (ret < 0) {
 		return -1;
 	}
-	delta_t = get_ticks_ms() - delta_t;
+	delta_t = timer_ms() - delta_t;
 	printf("total sent: %d bytes in %.1f s at %.1f MBps\n", ret, (double)delta_t/1000.0, (double)ret/(1000.0*(double)delta_t));
 
 	return ret;
@@ -49,7 +66,7 @@ int receiver(int socket, FILE* f, void* query, int query_size, int buf_size, int
 		printf("sent %d bytes\n", ret);
 	}
 
-	delta_t = get_ticks_ms();
+	delta_t = timer_ms();
 	if (use_len_pfx)
 		ret = recvfp(socket, f, file_size, buf_size, rtcb, 500, NULL);
 	else
@@ -57,7 +74,7 @@ int receiver(int socket, FILE* f, void* query, int query_size, int buf_size, int
 	if (ret < 0) {
 		return -1;
 	}
-	delta_t = get_ticks_ms() - delta_t;
+	delta_t = timer_ms() - delta_t;
 	printf("total received: %d bytes in %.1f s at %.1f MBps\n", ret, (double)delta_t/1000.0, (double)ret/(1000.0*(double)delta_t));
 
 	return ret;

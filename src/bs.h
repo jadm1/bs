@@ -33,8 +33,10 @@ int sendp(int socket, const void* buf, int size);
 int recvfp(int socket, FILE* f, int max_recv_size, int bufsize, int (*rtcb)(int rcvd_total, int recv_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data);
 int sendfp(int socket, FILE* f, int send_size, int bufsize, int (*stcb)(int sent_total, int send_size, int elapsed_ms, double speed_Bps, void* tcb_data), int interval_ms, void* tcb_data);
 
-int recvsm(int socket, char* s, int maxsize);
+int recvsm(int socket, char* s, int maxsize, const char* needle);
 int sendsm(int socket, const char* s);
+int recvs(int socket, char* s, int maxsize);
+int sends(int socket, const char* s);
 int recvsp(int socket, char* s, int maxsize);
 int sendsp(int socket, const char* s);
 #define recvprintf(p_ret, socket, bufsize) {\
@@ -48,22 +50,25 @@ int sendsp(int socket, const char* s);
 		else sendsp(socket, s); free((void*)buf);} else {if(p_ret!=NULL) *p_ret=-1;}}
 
 
-int sendchar(int socket, const char c);
-int recvchar(int socket, char* pc);
-int sendshort(int socket, const short s);
-int recvshort(int socket, short* ps);
-int sendint(int socket, const int i);
-int recvint(int socket, int* pi);
-int sendlonglong(int socket, const long long i);
-int recvlonglong(int socket, long long* pi);
-int sendfloat(int socket, const float f);
-int recvfloat(int socket, float* pf);
-int senddouble(int socket, const double f);
-int recvdouble(int socket, double* pf);
+int sendnints(int socket, int* p, int n);
+int recvnints(int socket, int* p, int n);
+int sendnlls(int socket, long long* p, int n);
+int recvnlls(int socket, long long* p, int n);
+int sendnfloats(int socket, float* p, int n);
+int recvnfloats(int socket, float* p, int n);
+int sendndoubles(int socket, double* p, int n);
+int recvndoubles(int socket, double* p, int n);
+
+int sendsints(int socket, char* buf, int maxsize, const char* sep, const char* end, const int* p, int n);
+int recvsints(int socket, char* buf, int maxsize, const char* sep, const char* end, int* p, int n);
+int sendslls(int socket, char* buf, int maxsize, const char* sep, const char* end, const long long* p, int n);
+int recvslls(int socket, char* buf, int maxsize, const char* sep, const char* end, long long* p, int n);
+int sendsfloats(int socket, char* buf, int maxsize, const char* sep, const char* end, const float* p, int n);
+int recvsfloats(int socket, char* buf, int maxsize, const char* sep, const char* end, float* p, int n);
+int sendsdoubles(int socket, char* buf, int maxsize, const char* sep, const char* end, const double* p, int n);
+int recvsdoubles(int socket, char* buf, int maxsize, const char* sep, const char* end, double* p, int n);
 
 
-// Utility functions for other purposes (not very useful)
-int get_ticks_ms(void);
 int setsockrcvtimeout(int socket, int recvto_s, int recvto_us);
 int setsocksndtimeout(int socket, int sendto_s, int sendto_us);
 int getsockrcvtimeout(int socket, int* precvto_s, int* precvto_us);
