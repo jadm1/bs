@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "bs.h"
+#include <bs.h>
 
 int sender(int socket) {
 	int ret = 0;
 	char *buf;
+	const char* sformat;
 	int buf_size;
 
 	double v[3];
@@ -18,14 +19,25 @@ int sender(int socket) {
 	}
 
 
-	//sendprintf(&ret, socket, "%s", "Hello !\n");
+	sendprintf(&ret, socket, "%s", "Hello !\n");
 
 
 	v[0] = 3.0;
 	v[1] = 42.0;
 	v[2] = -1.0;
 
-	ret = sendndoubles(socket, v, 3);
+	//ret = sendndoubles(socket, v, 3);
+
+	buf_size = 0;
+	sformat = "%g";
+	ret = prepsdoubles(buf, 0, &buf_size, ",", ",", &v[0], 1, sformat);
+	ret = prepsdoubles(buf, 0, &buf_size, ",", ",", &v[1], 1, sformat);
+	ret = prepsdoubles(buf, 0, &buf_size, ",", "\n", &v[2], 1, sformat);
+	//ret = prepsdoubles(buf, 0, &buf_size, ",", "\n", v, 3, sformat);   // 3 previous lines eqv to this line
+	buf[buf_size] = '\0';
+	printf("buf_size = %d\nbuf: \"%s\"\n", buf_size, buf);
+
+	ret = sendl(socket, buf, buf_size, 0);
 
 	free(buf);
 
@@ -47,10 +59,13 @@ int receiver(int socket) {
 		return -1;
 	}
 
-	//recvprintf(&ret, socket, 1024);
+	recvprintf(&ret, socket, 1024);
 
 
-	ret = recvndoubles(socket, v, 3);
+	//ret = recvndoubles(socket, v, 3);
+	ret = recvsdoubles(socket, buf, buf_size, ",", "\n", v, 3);
+
+
 	for (i = 0; i < 3; i++)
 		printf("v[%d] = %g\n", i, v[i]);
 

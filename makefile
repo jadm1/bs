@@ -1,56 +1,128 @@
-OS = linux
-#OS = windows
+#OS = linux
+OS = windows
+#OS = apple
 
-GCCOPT = gcc -O2 -funroll-loops
-GCCDEB = gcc -ggdb -Wall
-
-#CCC = $(GCCOPT)
-CCC = $(GCCDEB)
-
-CFLAGS = 
 
 ifeq ($(OS),linux)
-  LIBS = -lm
+  LDPTHREAD = 
+  LBM = -lm
+  LBSOCKETS = 
+  LBPTHREAD = -lpthread
 else ifeq ($(OS),windows)
-  LIBS = -lws2_32
+  LDPTHREAD = 
+  LBM = 
+  LBSOCKETS = -lws2_32
+  #sometimes -lpthreadGC2 or -lpthread
+  LBPTHREAD = 
+else ifeq ($(OS),apple) # TODO
+  LDPTHREAD = 
+  LBM = -lm
+  LBSOCKETS = 
+  LBPTHREAD = -lpthread
 else
-  LIBS = 
+  #ID specific include dirs
+  #LD specific library dirs
+  LDPTHREAD = 
+  #LB specific libraries
+  LBM = 
+  LBSOCKETS = 
+  LBPTHREAD = 
 endif
 
 
-CCCLNFLAGS = $(LIBS)
-CCCFLAGS = -Wno-address -Wno-pointer-sign # -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-label
+CC = gcc
 
 BDIR = bin
-ODIR = obj
 SDIR = src
 
-BS_PROG = $(BDIR)/bs-test
-BS_PROG_OBJ = $(ODIR)/bs.o $(ODIR)/serverclient.o
+CCFLAGS_DBG = -ggdb -Wall -O0
+CCFLAGS_OPT = -O2 -funroll-loops
+CCFLAGS_STD = 
 
-RECVWALL = $(BDIR)/recvw-all
-RECVWALL_OBJ = $(ODIR)/bs.o $(ODIR)/recvwall.o
+CLFLAGS_STD = $(LBM)
+CLFLAGS_NW = $(LBM) $(LBSOCKETS)
+CLFLAGS_MT = $(LBM) $(LBPTHREAD) $(LDPTHREAD)
+CLFLAGS_MTNW = $(LBM) $(LBPTHREAD) $(LBSOCKETS) $(LDPTHREAD)
 
-FILETSF = $(BDIR)/file-tsf
-FILETSF_OBJ = $(ODIR)/bs.o $(ODIR)/filetsf.o
 
-all: $(BS_PROG) $(RECVWALL) $(FILETSF)
+# specify targets
 
-$(ODIR)/%.o: $(SDIR)/%.c
-	@echo compiling $*.c with $(CCC) $(CCCFLAGS)
-	@$(CCC) $(CCCFLAGS) -c $< -o $@
+# main target
+BS_ODIR = $(SDIR)/bs
+BS_OBJ = $(BS_ODIR)/bs.o
+BS_INC = -I inc
+BS_CCFLAGS = $(CCFLAGS_DBG)
 
-$(BS_PROG): $(BS_PROG_OBJ)
-	$(CCC) $(CCCFLAGS) -o $(BS_PROG) $(BS_PROG_OBJ) $(CCCLNFLAGS)
 
-$(RECVWALL): $(RECVWALL_OBJ)
-	$(CCC) $(CCCFLAGS) -o $(RECVWALL) $(RECVWALL_OBJ) $(CCCLNFLAGS)
+# targets of example programs
+SRVCLI_ODIR = $(SDIR)/serverclient
+SRVCLI_INC = $(BS_INC)
+SRVCLI_OBJ = $(SRVCLI_ODIR)/serverclient.o
+SRVCLI_CCFLAGS = $(CCFLAGS_STD) -Wno-address
+SRVCLI_BIN = $(BDIR)/bs-test
+SRVCLI_BIN_OBJ = $(BS_OBJ) $(SRVCLI_OBJ)
+SRVCLI_CLFLAGS = $(CLFLAGS_NW)
 
-$(FILETSF): $(FILETSF_OBJ)
-	$(CCC) $(CCCFLAGS) -o $(FILETSF) $(FILETSF_OBJ) $(CCCLNFLAGS)
+RECVWALL_ODIR = $(SDIR)/recvw-all
+RECVWALL_INC = $(BS_INC)
+RECVWALL_OBJ = $(RECVWALL_ODIR)/recvwall.o
+RECVWALL_CCFLAGS = $(CCFLAGS_DBG)
+RECVWALL_BIN = $(BDIR)/recvw-all
+RECVWALL_BIN_OBJ = $(BS_OBJ) $(RECVWALL_OBJ)
+RECVWALL_CLFLAGS = $(CLFLAGS_NW)
 
+FILETSF_ODIR = $(SDIR)/file-tsf
+FILETSF_INC = $(BS_INC)
+FILETSF_OBJ = $(FILETSF_ODIR)/filetsf.o
+FILETSF_CCFLAGS = $(CCFLAGS_DBG)
+FILETSF_BIN = $(BDIR)/file-tsf
+FILETSF_BIN_OBJ = $(BS_OBJ) $(FILETSF_OBJ)
+FILETSF_CLFLAGS = $(CLFLAGS_NW)
+
+
+# specify make rules
+
+#all: bin # should be enough but obj->bin order not guaranteed
+all: obj bin
+
+bin: $(SRVCLI_BIN) $(RECVWALL_BIN) $(FILETSF_BIN)
+obj: $(BS_OBJ) $(SRVCLI_OBJ) $(RECVWALL_OBJ) $(FILETSF_OBJ)
+
+bs: $(BS_OBJ)
+
+bs-test: $(SRVCLI_BIN)
+recv-all: $(RECVWALL_BIN)
+file-tsf: $(FILETSF_BIN)
+
+# compiling objects
+$(BS_ODIR)/%.o: $(BS_ODIR)/%.c
+	$(CC) $(BS_CCFLAGS) -c $< -o $@ $(BS_INC)
+
+
+$(SRVCLI_ODIR)/%.o: $(SRVCLI_ODIR)/%.c
+	$(CC) $(SRVCLI_CCFLAGS) -c $< -o $@ $(SRVCLI_INC)
+
+$(RECVWALL_ODIR)/%.o: $(RECVWALL_ODIR)/%.c
+	$(CC) $(RECVWALL_CCFLAGS) -c $< -o $@ $(RECVWALL_INC)
+
+$(FILETSF_ODIR)/%.o: $(FILETSF_ODIR)/%.c
+	$(CC) $(FILETSF_CCFLAGS) -c $< -o $@ $(FILETSF_INC)
+
+
+# linking programs
+$(SRVCLI_BIN): $(SRVCLI_BIN_OBJ)
+	$(CC) -o $(SRVCLI_BIN) $(SRVCLI_BIN_OBJ) $(SRVCLI_CLFLAGS)
+
+$(RECVWALL_BIN): $(RECVWALL_BIN_OBJ)
+	$(CC) -o $(RECVWALL_BIN) $(RECVWALL_BIN_OBJ) $(RECVWALL_CLFLAGS)
+
+$(FILETSF_BIN): $(FILETSF_BIN_OBJ)
+	$(CC) -o $(FILETSF_BIN) $(FILETSF_BIN_OBJ) $(FILETSF_CLFLAGS)
 
 clean:
-	rm $(BS_PROG) $(RECVWALL) $(FILETSF) -f
-	rm $(ODIR)/* -f
+	rm $(SRVCLI_BIN) $(RECVWALL_BIN) $(FILETSF_BIN) -f
+	rm $(BS_ODIR)/*.o -f
+	rm $(RECVWALL_ODIR)/*.o -f
+	rm $(FILETSF_ODIR)/*.o -f
+	rm $(SDIR)/*.o -f
 

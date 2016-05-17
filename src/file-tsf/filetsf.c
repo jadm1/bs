@@ -1,11 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "bs.h"
+#include <bs.h>
 
-#ifndef min
-#define min(a, b) ((b > a) ? (a) : (b))
-#endif
+
 #ifndef max
 #define max(a, b) ((b > a) ? (b) : (a))
 #endif

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "bs.h"
+#include <bs.h>
 
 #ifndef min
 #define min(a, b) ((b > a) ? (a) : (b))
