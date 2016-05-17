@@ -1,5 +1,5 @@
-#OS = linux
-OS = windows
+OS = linux
+#OS = windows
 #OS = apple
 
 
